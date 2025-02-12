@@ -1139,6 +1139,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📋 View All Orders", callback_data='admin_view_orders')],
         [InlineKeyboardButton("🔍 Search Orders", callback_data='admin_search_orders')],
         [InlineKeyboardButton("📊 Order Statistics", callback_data='admin_stats')],
+        [InlineKeyboardButton("🗑 Delete All Orders", callback_data='admin_delete_all_confirm')],
         [InlineKeyboardButton("↩️ Back to Main Menu", callback_data='start')]
     ]
     
@@ -1225,16 +1226,127 @@ async def admin_view_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Action buttons for each order
         for order in current_orders:
-            keyboard.append([
-                InlineKeyboardButton(
+            keyboard.extend([
+                [InlineKeyboardButton(
                     f"Update Status - {order['order_id']}",
                     callback_data=f"admin_update_status_{order['order_id']}"
-                )
+                )],
+                [InlineKeyboardButton(
+                    f"🗑 Delete Order - {order['order_id']}",
+                    callback_data=f"admin_delete_confirm_{order['order_id']}"
+                )]
             ])
         
         keyboard.append([InlineKeyboardButton("↩️ Back to Admin Panel", callback_data='admin_panel')])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def admin_delete_order_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show confirmation dialog for deleting a single order"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    order_id = query.data.split('_')[-1]
+    
+    message = (
+        "⚠️ *Delete Order Confirmation* ⚠️\n\n"
+        f"Are you sure you want to delete order *{order_id}*?\n"
+        "This action cannot be undone."
+    )
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Yes, Delete", callback_data=f'admin_delete_order_{order_id}'),
+            InlineKeyboardButton("❌ No, Cancel", callback_data='admin_view_orders')
+        ]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def admin_delete_all_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show confirmation dialog for deleting all orders"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    total_orders = sum(len(orders) for orders in USER_ORDERS.values())
+    
+    message = (
+        "⚠️ *Delete All Orders Confirmation* ⚠️\n\n"
+        f"Are you sure you want to delete *ALL {total_orders} orders*?\n"
+        "This action cannot be undone and will affect all users."
+    )
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Yes, Delete All", callback_data='admin_delete_all_orders'),
+            InlineKeyboardButton("❌ No, Cancel", callback_data='admin_panel')
+        ]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def admin_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Delete a single order"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    order_id = query.data.split('_')[-1]
+    order_found = False
+    
+    # Find and delete the order
+    for user_id, orders in USER_ORDERS.items():
+        for order in orders[:]:  # Create a copy to iterate while removing
+            if order['order_id'] == order_id:
+                orders.remove(order)
+                order_found = True
+                # If user has no orders left, clean up
+                if not orders:
+                    del USER_ORDERS[user_id]
+                break
+        if order_found:
+            break
+    
+    if order_found:
+        save_data()  # Save changes to disk
+        await query.answer("Order deleted successfully!")
+    else:
+        await query.answer("Order not found!", show_alert=True)
+    
+    # Return to order view
+    await admin_view_orders(update, context)
+
+async def admin_delete_all_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Delete all orders from all users"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    # Clear all orders
+    USER_ORDERS.clear()
+    save_data()  # Save changes to disk
+    
+    message = (
+        "✅ *All Orders Deleted* ✅\n\n"
+        "All orders have been successfully deleted from the system."
+    )
+    
+    keyboard = [[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data='admin_panel')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
     await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def admin_update_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1413,7 +1525,7 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text(stats_message, reply_markup=reply_markup, parse_mode='Markdown')
 
-# Update the handle_callback function to include admin commands
+# Update handle_callback to include new admin delete functions
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle all callback queries"""
     query = update.callback_query
@@ -1437,6 +1549,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await admin_set_status(update, context)
         elif query.data == 'admin_stats':
             await admin_stats(update, context)
+        elif query.data.startswith('admin_delete_confirm_'):
+            await admin_delete_order_confirm(update, context)
+        elif query.data.startswith('admin_delete_order_'):
+            await admin_delete_order(update, context)
+        elif query.data == 'admin_delete_all_confirm':
+            await admin_delete_all_confirm(update, context)
+        elif query.data == 'admin_delete_all_orders':
+            await admin_delete_all_orders(update, context)
         return
     
     # User order navigation
