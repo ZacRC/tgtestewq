@@ -748,8 +748,8 @@ async def handle_payment_selection(update: Update, context: ContextTypes.DEFAULT
         price = PRODUCT_CATALOG[product_name]['prices'][weight]['price']
         total += price * quantity
     
-    # Create order
-    order = {
+    # Store order details in context for later use
+    context.user_data['pending_order'] = {
         'order_id': CHECKOUT_STEPS[user_id]['order_id'],
         'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         'status': 'pending',
@@ -758,11 +758,6 @@ async def handle_payment_selection(update: Update, context: ContextTypes.DEFAULT
         'payment_method': payment_method,
         'shipping_info': CHECKOUT_STEPS[user_id]['shipping_info']
     }
-    
-    # Save order to user's history
-    if user_id not in USER_ORDERS:
-        USER_ORDERS[user_id] = []
-    USER_ORDERS[user_id].append(order)
     
     # Update checkout step
     CHECKOUT_STEPS[user_id]['step'] = 'confirm_payment'
@@ -774,7 +769,7 @@ async def handle_payment_selection(update: Update, context: ContextTypes.DEFAULT
     payment_message = (
         "💳 *Payment Details*\n"
         "─────────────────\n\n"
-        f"*Order ID:* `{order['order_id']}`\n\n"
+        f"*Order ID:* `{context.user_data['pending_order']['order_id']}`\n\n"
         "*Selected Products:*\n"
     )
     
@@ -812,27 +807,23 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in CHECKOUT_STEPS or CHECKOUT_STEPS[user_id]['step'] != 'confirm_payment':
         return
     
-    order_id = CHECKOUT_STEPS[user_id]['order_id']
-    cart = SHOPPING_CARTS.get(user_id, {})
+    if 'pending_order' not in context.user_data:
+        await query.edit_message_text(
+            "❌ Error: Order details not found. Please try again.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Back to Menu", callback_data='start')]]),
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Get the pending order from context
+    order = context.user_data['pending_order']
     
     # Initialize user's orders list if it doesn't exist
     if user_id not in USER_ORDERS:
         USER_ORDERS[user_id] = []
     
-    # Create new order
-    new_order = {
-        'order_id': order_id,
-        'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'status': 'pending',
-        'total': sum(PRODUCT_CATALOG[cart_key.split('_')[0]]['prices'][cart_key.split('_')[1]]['price'] * quantity
-                    for cart_key, quantity in cart.items()),
-        'items': dict(cart),
-        'payment_method': CHECKOUT_STEPS[user_id].get('payment_method', 'unknown'),
-        'shipping_info': CHECKOUT_STEPS[user_id].get('shipping_info', 'N/A')
-    }
-    
-    # Add the new order to user's orders
-    USER_ORDERS[user_id].append(new_order)
+    # Add the order to user's orders
+    USER_ORDERS[user_id].append(order)
     
     # Save data immediately
     save_data()
@@ -840,22 +831,22 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     confirmation_message = (
         "🎉 *Order Successfully Placed!* 🎉\n"
         "─────────────────\n\n"
-        f"*Order ID:* `{order_id}`\n\n"
+        f"*Order ID:* `{order['order_id']}`\n\n"
         "*Selected Products:*\n"
     )
     
     # Add itemized list to confirmation
-    for cart_key, quantity in cart.items():
+    for cart_key, quantity in order['items'].items():
         product_name, weight = cart_key.split('_')
         price = PRODUCT_CATALOG[product_name]['prices'][weight]['price']
         item_total = price * quantity
         confirmation_message += f"• {product_name} {weight}g × {quantity} = {format_price(item_total)}\n"
     
     confirmation_message += (
-        f"\n*Total Amount:* {format_price(new_order['total'])}\n"
-        f"*Payment Method:* {new_order['payment_method'].title()}\n\n"
+        f"\n*Total Amount:* {format_price(order['total'])}\n"
+        f"*Payment Method:* {order['payment_method'].title()}\n\n"
         "*Shipping Details:*\n"
-        f"{new_order['shipping_info']}\n\n"
+        f"{order['shipping_info']}\n\n"
         "Your order has been confirmed and will be processed shortly.\n"
         "You can check your order status or update shipping details\n"
         "in the Order History section.\n\n"
@@ -871,10 +862,12 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(confirmation_message, reply_markup=reply_markup, parse_mode='Markdown')
     
-    # Clear cart and checkout data
+    # Clear cart, checkout data, and pending order
     SHOPPING_CARTS[user_id] = {}
     if user_id in CHECKOUT_STEPS:
         del CHECKOUT_STEPS[user_id]
+    if 'pending_order' in context.user_data:
+        del context.user_data['pending_order']
     save_data()
 
 async def view_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
