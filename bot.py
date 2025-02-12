@@ -1225,28 +1225,20 @@ async def admin_view_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Action buttons for each order
         for order in current_orders:
-            keyboard.extend([
-                [InlineKeyboardButton(
+            keyboard.append([
+                InlineKeyboardButton(
                     f"Update Status - {order['order_id']}",
                     callback_data=f"admin_update_status_{order['order_id']}"
-                )],
-                [InlineKeyboardButton(
-                    f"🗑️ Delete Order - {order['order_id']}",
-                    callback_data=f"admin_delete_order_{order['order_id']}"
-                )]
+                )
             ])
         
-        # Add delete all orders button
-        keyboard.extend([
-            [InlineKeyboardButton("🗑️ Delete All Orders", callback_data='admin_delete_all_confirm')],
-            [InlineKeyboardButton("↩️ Back to Admin Panel", callback_data='admin_panel')]
-        ])
+        keyboard.append([InlineKeyboardButton("↩️ Back to Admin Panel", callback_data='admin_panel')])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
 
-async def admin_delete_order_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Confirm deletion of a specific order"""
+async def admin_update_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Update order status"""
     if update.effective_user.username != ADMIN_USERNAME:
         return
     
@@ -1255,136 +1247,173 @@ async def admin_delete_order_confirm(update: Update, context: ContextTypes.DEFAU
     
     order_id = query.data.split('_')[-1]
     
-    message = (
-        "⚠️ *Confirm Order Deletion* ⚠️\n\n"
-        f"Are you sure you want to delete order *{order_id}*?\n"
-        "This action cannot be undone."
-    )
+    message = f"Select new status for Order ID: `{order_id}`"
     
     keyboard = [
-        [InlineKeyboardButton("✅ Yes, Delete Order", callback_data=f'admin_delete_order_confirmed_{order_id}')],
-        [InlineKeyboardButton("❌ No, Cancel", callback_data='admin_view_orders')]
+        [InlineKeyboardButton("⏳ Pending", callback_data=f'admin_set_status_{order_id}_pending')],
+        [InlineKeyboardButton("🔄 Processing", callback_data=f'admin_set_status_{order_id}_processing')],
+        [InlineKeyboardButton("🚚 Shipped", callback_data=f'admin_set_status_{order_id}_shipped')],
+        [InlineKeyboardButton("✅ Delivered", callback_data=f'admin_set_status_{order_id}_delivered')],
+        [InlineKeyboardButton("❌ Cancelled", callback_data=f'admin_set_status_{order_id}_cancelled')],
+        [InlineKeyboardButton("↩️ Back to Orders", callback_data='admin_view_orders')]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
 
-async def admin_delete_all_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Confirm deletion of all orders"""
+async def admin_set_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Set the new status for an order"""
     if update.effective_user.username != ADMIN_USERNAME:
         return
     
     query = update.callback_query
     await query.answer()
     
-    total_orders = sum(len(orders) for orders in USER_ORDERS.values())
+    # Extract order_id and new_status from callback data
+    parts = query.data.split('_')
+    order_id = parts[-2]  # Second to last part is order_id
+    new_status = parts[-1]  # Last part is the status
     
-    message = (
-        "⚠️ *Confirm Delete All Orders* ⚠️\n\n"
-        f"You are about to delete *{total_orders}* orders.\n"
-        "This action cannot be undone.\n\n"
-        "Are you sure you want to proceed?"
-    )
+    # Status notification messages
+    status_messages = {
+        'processing': (
+            "🔄 *Order Status Update* 🔄\n\n"
+            f"Your order (*{order_id}*) is now being processed!\n\n"
+            "We are preparing your items for shipment.\n"
+            "You will receive another notification when your order ships."
+        ),
+        'shipped': (
+            "🚚 *Order Status Update* 🚚\n\n"
+            f"Your order (*{order_id}*) has been shipped!\n\n"
+            "Your package is on its way to you.\n"
+            "Thank you for your business!"
+        ),
+        'delivered': (
+            "✅ *Order Status Update* ✅\n\n"
+            f"Your order (*{order_id}*) has been marked as delivered!\n\n"
+            "We hope you enjoy your products.\n"
+            "Thank you for choosing our service!"
+        ),
+        'cancelled': (
+            "❌ *Order Status Update* ❌\n\n"
+            f"Your order (*{order_id}*) has been cancelled.\n\n"
+            "If you have any questions about this cancellation,\n"
+            "please contact our support."
+        ),
+        'pending': (
+            "⏳ *Order Status Update* ⏳\n\n"
+            f"Your order (*{order_id}*) status has been updated to pending.\n\n"
+            "We will process your order soon.\n"
+            "Thank you for your patience."
+        )
+    }
     
-    keyboard = [
-        [InlineKeyboardButton("✅ Yes, Delete All Orders", callback_data='admin_delete_all_confirmed')],
-        [InlineKeyboardButton("❌ No, Cancel", callback_data='admin_view_orders')]
-    ]
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
-
-async def admin_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Delete a specific order"""
-    if update.effective_user.username != ADMIN_USERNAME:
-        return
-    
-    query = update.callback_query
-    await query.answer()
-    
-    order_id = query.data.split('_')[-1]
-    
-    # Find and delete the order
-    order_found = False
-    user_to_notify = None
-    for user_id, orders in USER_ORDERS.items():
-        for order in orders[:]:  # Create a copy to safely modify during iteration
+    # Update order status
+    status_updated = False
+    for user_id, user_orders in USER_ORDERS.items():
+        for order in user_orders:
             if order['order_id'] == order_id:
-                orders.remove(order)
-                order_found = True
-                user_to_notify = user_id
-                # If user has no orders left, remove their entry
-                if not orders:
-                    del USER_ORDERS[user_id]
+                order['status'] = new_status
+                status_updated = True
+                save_data()  # Save after updating order status
+                
+                # Send notification for any status change
+                if new_status in status_messages:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text=status_messages[new_status],
+                            parse_mode='Markdown'
+                        )
+                    except Exception as e:
+                        print(f"Failed to notify user {user_id}: {e}")
                 break
-        if order_found:
+        if status_updated:
             break
     
-    if order_found:
-        # Save changes to database
-        save_data()
-        
-        # Notify the user about order deletion
-        try:
-            await context.bot.send_message(
-                chat_id=user_to_notify,
-                text=(
-                    "❌ *Order Deleted* ❌\n\n"
-                    f"Your order (*{order_id}*) has been deleted by the administrator.\n"
-                    "If you have any questions, please contact support."
-                ),
-                parse_mode='Markdown'
-            )
-        except Exception as e:
-            print(f"Failed to notify user {user_to_notify}: {e}")
-        
-        # Show success message to admin
-        await query.answer("Order deleted successfully!")
-    else:
-        await query.answer("Order not found!")
+    # Show confirmation message to admin
+    await query.answer(f"Order status updated to: {new_status}")
     
     # Return to order view
     await admin_view_orders(update, context)
 
-async def admin_delete_all_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Delete all orders"""
+async def admin_handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle admin panel navigation"""
     if update.effective_user.username != ADMIN_USERNAME:
         return
     
     query = update.callback_query
     await query.answer()
     
-    # Store user IDs before clearing orders
-    user_ids = list(USER_ORDERS.keys())
+    if query.data == 'admin_next_page':
+        context.user_data['admin_order_page'] = context.user_data.get('admin_order_page', 0) + 1
+    elif query.data == 'admin_prev_page':
+        context.user_data['admin_order_page'] = max(0, context.user_data.get('admin_order_page', 0) - 1)
     
-    # Clear all orders
-    USER_ORDERS.clear()
-    
-    # Save changes to database
-    save_data()
-    
-    # Notify all users about order deletion
-    for user_id in user_ids:
-        try:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=(
-                    "❌ *Orders Deleted* ❌\n\n"
-                    "All your orders have been deleted by the administrator.\n"
-                    "If you have any questions, please contact support."
-                ),
-                parse_mode='Markdown'
-            )
-        except Exception as e:
-            print(f"Failed to notify user {user_id}: {e}")
-    
-    # Show success message to admin
-    await query.answer("All orders deleted successfully!")
-    
-    # Return to order view
     await admin_view_orders(update, context)
 
-# Update handle_callback to include new admin delete functions
+async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Display order statistics"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    # Collect all orders
+    all_orders = []
+    for user_orders in USER_ORDERS.values():
+        all_orders.extend(user_orders)
+    
+    # Calculate statistics
+    total_orders = len(all_orders)
+    if total_orders == 0:
+        stats_message = "📊 *No orders to analyze*"
+    else:
+        total_revenue = sum(order['total'] for order in all_orders)
+        status_counts = {}
+        payment_methods = {}
+        product_quantities = {}
+        
+        for order in all_orders:
+            # Count statuses
+            status_counts[order['status']] = status_counts.get(order['status'], 0) + 1
+            
+            # Count payment methods
+            payment_methods[order['payment_method']] = payment_methods.get(order['payment_method'], 0) + 1
+            
+            # Count product quantities
+            for cart_key, quantity in order['items'].items():
+                product_name = cart_key.split('_')[0]
+                product_quantities[product_name] = product_quantities.get(product_name, 0) + quantity
+        
+        stats_message = (
+            "📊 *Order Statistics* 📊\n\n"
+            f"*Total Orders:* {total_orders}\n"
+            f"*Total Revenue:* ${total_revenue:.2f}\n\n"
+            "*Order Status Breakdown:*\n"
+        )
+        
+        for status, count in status_counts.items():
+            percentage = (count / total_orders) * 100
+            stats_message += f"• {status.title()}: {count} ({percentage:.1f}%)\n"
+        
+        stats_message += "\n*Payment Methods:*\n"
+        for method, count in payment_methods.items():
+            percentage = (count / total_orders) * 100
+            stats_message += f"• {method.title()}: {count} ({percentage:.1f}%)\n"
+        
+        stats_message += "\n*Popular Products:*\n"
+        sorted_products = sorted(product_quantities.items(), key=lambda x: x[1], reverse=True)
+        for product, quantity in sorted_products:
+            stats_message += f"• {product}: {quantity}g sold\n"
+    
+    keyboard = [[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data='admin_panel')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(stats_message, reply_markup=reply_markup, parse_mode='Markdown')
+
+# Update the handle_callback function to include admin commands
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle all callback queries"""
     query = update.callback_query
@@ -1408,14 +1437,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await admin_set_status(update, context)
         elif query.data == 'admin_stats':
             await admin_stats(update, context)
-        elif query.data.startswith('admin_delete_order_') and not query.data.startswith('admin_delete_order_confirmed_'):
-            await admin_delete_order_confirm(update, context)
-        elif query.data.startswith('admin_delete_order_confirmed_'):
-            await admin_delete_order(update, context)
-        elif query.data == 'admin_delete_all_confirm':
-            await admin_delete_all_confirm(update, context)
-        elif query.data == 'admin_delete_all_confirmed':
-            await admin_delete_all_orders(update, context)
         return
     
     # User order navigation
