@@ -1274,6 +1274,40 @@ async def admin_set_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order_id = parts[-2]  # Second to last part is order_id
     new_status = parts[-1]  # Last part is the status
     
+    # Status notification messages
+    status_messages = {
+        'processing': (
+            "🔄 *Order Status Update* 🔄\n\n"
+            f"Your order (*{order_id}*) is now being processed!\n\n"
+            "We are preparing your items for shipment.\n"
+            "You will receive another notification when your order ships."
+        ),
+        'shipped': (
+            "🚚 *Order Status Update* 🚚\n\n"
+            f"Your order (*{order_id}*) has been shipped!\n\n"
+            "Your package is on its way to you.\n"
+            "Thank you for your business!"
+        ),
+        'delivered': (
+            "✅ *Order Status Update* ✅\n\n"
+            f"Your order (*{order_id}*) has been marked as delivered!\n\n"
+            "We hope you enjoy your products.\n"
+            "Thank you for choosing our service!"
+        ),
+        'cancelled': (
+            "❌ *Order Status Update* ❌\n\n"
+            f"Your order (*{order_id}*) has been cancelled.\n\n"
+            "If you have any questions about this cancellation,\n"
+            "please contact our support."
+        ),
+        'pending': (
+            "⏳ *Order Status Update* ⏳\n\n"
+            f"Your order (*{order_id}*) status has been updated to pending.\n\n"
+            "We will process your order soon.\n"
+            "Thank you for your patience."
+        )
+    }
+    
     # Update order status
     status_updated = False
     for user_id, user_orders in USER_ORDERS.items():
@@ -1283,16 +1317,12 @@ async def admin_set_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 status_updated = True
                 save_data()  # Save after updating order status
                 
-                # If order is marked as shipped, notify the customer
-                if new_status == 'shipped':
+                # Send notification for any status change
+                if new_status in status_messages:
                     try:
                         await context.bot.send_message(
                             chat_id=user_id,
-                            text=(
-                                "🚚 *Order Status Update* 🚚\n\n"
-                                f"Your order (*{order_id}*) has been shipped!\n\n"
-                                "Thank you for your business!"
-                            ),
+                            text=status_messages[new_status],
                             parse_mode='Markdown'
                         )
                     except Exception as e:
@@ -1301,7 +1331,7 @@ async def admin_set_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if status_updated:
             break
     
-    # Show confirmation message
+    # Show confirmation message to admin
     await query.answer(f"Order status updated to: {new_status}")
     
     # Return to order view
