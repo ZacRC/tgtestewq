@@ -813,51 +813,69 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     order_id = CHECKOUT_STEPS[user_id]['order_id']
+    cart = SHOPPING_CARTS.get(user_id, {})
     
-    # Find the order and update its status
-    for order in USER_ORDERS.get(user_id, []):
-        if order['order_id'] == order_id:
-            order['status'] = 'processing'
-            save_data()  # Save after updating order status
-            
-            confirmation_message = (
-                "🎉 *Order Successfully Placed!* 🎉\n"
-                "─────────────────\n\n"
-                f"*Order ID:* `{order_id}`\n\n"
-                "*Selected Products:*\n"
-            )
-            
-            # Add itemized list to confirmation
-            for cart_key, quantity in order['items'].items():
-                product_name, weight = cart_key.split('_')
-                price = PRODUCT_CATALOG[product_name]['prices'][weight]['price']
-                item_total = price * quantity
-                confirmation_message += f"• {product_name} {weight}g × {quantity} = {format_price(item_total)}\n"
-            
-            confirmation_message += (
-                f"\n*Total Amount:* {format_price(order['total'])}\n"
-                f"*Payment Method:* {order['payment_method'].title()}\n\n"
-                "*Shipping Details:*\n"
-                f"{order['shipping_info']}\n\n"
-                "Your order has been confirmed and will be processed shortly.\n"
-                "You can check your order status or update shipping details\n"
-                "in the Order History section.\n\n"
-                "*Thank you for your purchase!* 🙏"
-            )
-            
-            # Order confirmation buttons
-            keyboard = [
-                [InlineKeyboardButton("View Order Status", callback_data='view_orders')],
-                [InlineKeyboardButton("↩️ Back to Menu", callback_data='start')]
-            ]
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(confirmation_message, reply_markup=reply_markup, parse_mode='Markdown')
-            
-            # Clear cart and checkout data
-            SHOPPING_CARTS[user_id] = {}
-            del CHECKOUT_STEPS[user_id]
-            break
+    # Initialize user's orders list if it doesn't exist
+    if user_id not in USER_ORDERS:
+        USER_ORDERS[user_id] = []
+    
+    # Create new order
+    new_order = {
+        'order_id': order_id,
+        'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'status': 'pending',
+        'total': sum(PRODUCT_CATALOG[cart_key.split('_')[0]]['prices'][cart_key.split('_')[1]]['price'] * quantity
+                    for cart_key, quantity in cart.items()),
+        'items': dict(cart),
+        'payment_method': CHECKOUT_STEPS[user_id].get('payment_method', 'unknown'),
+        'shipping_info': CHECKOUT_STEPS[user_id].get('shipping_info', 'N/A')
+    }
+    
+    # Add the new order to user's orders
+    USER_ORDERS[user_id].append(new_order)
+    
+    # Save data immediately
+    save_data()
+    
+    confirmation_message = (
+        "🎉 *Order Successfully Placed!* 🎉\n"
+        "─────────────────\n\n"
+        f"*Order ID:* `{order_id}`\n\n"
+        "*Selected Products:*\n"
+    )
+    
+    # Add itemized list to confirmation
+    for cart_key, quantity in cart.items():
+        product_name, weight = cart_key.split('_')
+        price = PRODUCT_CATALOG[product_name]['prices'][weight]['price']
+        item_total = price * quantity
+        confirmation_message += f"• {product_name} {weight}g × {quantity} = {format_price(item_total)}\n"
+    
+    confirmation_message += (
+        f"\n*Total Amount:* {format_price(new_order['total'])}\n"
+        f"*Payment Method:* {new_order['payment_method'].title()}\n\n"
+        "*Shipping Details:*\n"
+        f"{new_order['shipping_info']}\n\n"
+        "Your order has been confirmed and will be processed shortly.\n"
+        "You can check your order status or update shipping details\n"
+        "in the Order History section.\n\n"
+        "*Thank you for your purchase!* 🙏"
+    )
+    
+    # Order confirmation buttons
+    keyboard = [
+        [InlineKeyboardButton("View Order Status", callback_data='view_orders')],
+        [InlineKeyboardButton("↩️ Back to Menu", callback_data='start')]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(confirmation_message, reply_markup=reply_markup, parse_mode='Markdown')
+    
+    # Clear cart and checkout data
+    SHOPPING_CARTS[user_id] = {}
+    if user_id in CHECKOUT_STEPS:
+        del CHECKOUT_STEPS[user_id]
+    save_data()
 
 async def view_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Display user's order history"""
@@ -1408,31 +1426,47 @@ def save_data():
     """Save orders and carts to files"""
     os.makedirs(DATA_DIR, exist_ok=True)
     
-    # Save orders
-    with open(ORDERS_FILE, 'w') as f:
-        json.dump(USER_ORDERS, f)
-    
-    # Save carts
-    with open(CARTS_FILE, 'w') as f:
-        # Convert user IDs to strings for JSON serialization
-        carts_data = {str(k): v for k, v in SHOPPING_CARTS.items()}
-        json.dump(carts_data, f)
+    try:
+        # Save orders with proper formatting
+        with open(ORDERS_FILE, 'w') as f:
+            # Convert user IDs to strings for JSON serialization
+            orders_data = {str(k): v for k, v in USER_ORDERS.items()}
+            json.dump(orders_data, f, indent=2)
+        
+        # Save carts with proper formatting
+        with open(CARTS_FILE, 'w') as f:
+            # Convert user IDs to strings for JSON serialization
+            carts_data = {str(k): v for k, v in SHOPPING_CARTS.items()}
+            json.dump(carts_data, f, indent=2)
+    except Exception as e:
+        logger.error(f"Error saving data: {e}")
 
 def load_data():
     """Load orders and carts from files"""
     global USER_ORDERS, SHOPPING_CARTS
     
-    # Load orders
-    if os.path.exists(ORDERS_FILE):
-        with open(ORDERS_FILE, 'r') as f:
-            USER_ORDERS = json.load(f)
-    
-    # Load carts
-    if os.path.exists(CARTS_FILE):
-        with open(CARTS_FILE, 'r') as f:
-            carts_data = json.load(f)
-            # Convert user IDs back to integers
-            SHOPPING_CARTS = {int(k): v for k, v in carts_data.items()}
+    try:
+        # Load orders
+        if os.path.exists(ORDERS_FILE):
+            with open(ORDERS_FILE, 'r') as f:
+                orders_data = json.load(f)
+                # Convert user IDs back to integers
+                USER_ORDERS = {int(k): v for k, v in orders_data.items()}
+        else:
+            USER_ORDERS = {}
+        
+        # Load carts
+        if os.path.exists(CARTS_FILE):
+            with open(CARTS_FILE, 'r') as f:
+                carts_data = json.load(f)
+                # Convert user IDs back to integers
+                SHOPPING_CARTS = {int(k): v for k, v in carts_data.items()}
+        else:
+            SHOPPING_CARTS = {}
+    except Exception as e:
+        logger.error(f"Error loading data: {e}")
+        USER_ORDERS = {}
+        SHOPPING_CARTS = {}
 
 def main():
     """Start the bot."""
