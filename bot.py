@@ -132,6 +132,9 @@ SHIPPING_INFO = {}   # Store shipping information
 # Add these after the existing storage declarations
 USER_ORDERS = {}  # Store order history for users
 
+# Add after other global variables
+ADMIN_USERNAME = "CrackerJackson"
+
 def format_price(price):
     """Format price with 2 decimal places and $ symbol"""
     return f"${price:.2f}"
@@ -234,7 +237,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the start command"""
     user_id = update.effective_user.id
     SHOPPING_CARTS[user_id] = {}
-    await send_main_menu(update, context)
+    
+    if update.effective_user.username == ADMIN_USERNAME:
+        await admin_panel(update, context)
+    else:
+        await send_main_menu(update, context)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Provide help information and FAQ"""
@@ -1056,10 +1063,289 @@ async def view_lab_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Display admin panel with order management options"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    query = update.callback_query
+    if query:
+        await query.answer()
+    
+    admin_message = (
+        "👑 *Admin Control Panel* 👑\n\n"
+        "Select an option to manage:"
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("📋 View All Orders", callback_data='admin_view_orders')],
+        [InlineKeyboardButton("🔍 Search Orders", callback_data='admin_search_orders')],
+        [InlineKeyboardButton("📊 Order Statistics", callback_data='admin_stats')],
+        [InlineKeyboardButton("↩️ Back to Main Menu", callback_data='start')]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if query:
+        await query.edit_message_text(admin_message, reply_markup=reply_markup, parse_mode='Markdown')
+    else:
+        await update.message.reply_text(admin_message, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def admin_view_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Display all orders with pagination"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    # Get page number from context or start at 0
+    page = context.user_data.get('admin_order_page', 0)
+    orders_per_page = 5
+    
+    # Collect all orders from all users
+    all_orders = []
+    for user_id, orders in USER_ORDERS.items():
+        for order in orders:
+            order['user_id'] = user_id
+            all_orders.append(order)
+    
+    # Sort orders by date (newest first)
+    all_orders.sort(key=lambda x: datetime.strptime(x['date'], "%Y-%m-%d %H:%M:%S"), reverse=True)
+    
+    total_orders = len(all_orders)
+    total_pages = (total_orders + orders_per_page - 1) // orders_per_page
+    
+    if total_orders == 0:
+        message = "📋 *No orders found*"
+        keyboard = [[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data='admin_panel')]]
+    else:
+        start_idx = page * orders_per_page
+        end_idx = min(start_idx + orders_per_page, total_orders)
+        current_orders = all_orders[start_idx:end_idx]
+        
+        message = "📋 *All Orders*\n\n"
+        
+        for order in current_orders:
+            status_emoji = {
+                'pending': '⏳',
+                'processing': '🔄',
+                'shipped': '🚚',
+                'delivered': '✅',
+                'cancelled': '❌'
+            }.get(order['status'], '⏳')
+            
+            message += (
+                f"*Order ID:* `{order['order_id']}`\n"
+                f"*Date:* {order['date']}\n"
+                f"*Status:* {status_emoji} {order['status'].title()}\n"
+                f"*Total:* ${order['total']:.2f}\n"
+                f"*Payment:* {order['payment_method'].title()}\n\n"
+                "*Items:*\n"
+            )
+            
+            for cart_key, quantity in order['items'].items():
+                product_name, weight = cart_key.split('_')
+                message += f"• {product_name} {weight}g × {quantity}\n"
+            
+            message += f"\n*Shipping Info:*\n{order['shipping_info']}\n"
+            message += "\n─────────────────\n\n"
+        
+        message += f"Page {page + 1} of {total_pages}"
+        
+        # Navigation buttons
+        keyboard = []
+        nav_buttons = []
+        
+        if page > 0:
+            nav_buttons.append(InlineKeyboardButton("⬅️ Previous", callback_data='admin_prev_page'))
+        if page < total_pages - 1:
+            nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data='admin_next_page'))
+        
+        if nav_buttons:
+            keyboard.append(nav_buttons)
+        
+        # Action buttons for each order
+        for order in current_orders:
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"Update Status - {order['order_id']}",
+                    callback_data=f"admin_update_status_{order['order_id']}"
+                )
+            ])
+        
+        keyboard.append([InlineKeyboardButton("↩️ Back to Admin Panel", callback_data='admin_panel')])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def admin_update_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Update order status"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    order_id = query.data.split('_')[-1]
+    
+    message = f"Select new status for Order ID: `{order_id}`"
+    
+    keyboard = [
+        [InlineKeyboardButton("⏳ Pending", callback_data=f'admin_set_status_{order_id}_pending')],
+        [InlineKeyboardButton("🔄 Processing", callback_data=f'admin_set_status_{order_id}_processing')],
+        [InlineKeyboardButton("🚚 Shipped", callback_data=f'admin_set_status_{order_id}_shipped')],
+        [InlineKeyboardButton("✅ Delivered", callback_data=f'admin_set_status_{order_id}_delivered')],
+        [InlineKeyboardButton("❌ Cancelled", callback_data=f'admin_set_status_{order_id}_cancelled')],
+        [InlineKeyboardButton("↩️ Back to Orders", callback_data='admin_view_orders')]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def admin_set_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Set the new status for an order"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    _, _, order_id, new_status = query.data.split('_')
+    
+    # Update order status
+    status_updated = False
+    for user_orders in USER_ORDERS.values():
+        for order in user_orders:
+            if order['order_id'] == order_id:
+                order['status'] = new_status
+                status_updated = True
+                
+                # If order is marked as shipped, notify the customer
+                if new_status == 'shipped':
+                    user_id = int(order_id.split('-')[2])  # Extract user_id from order_id
+                    try:
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text=(
+                                "🚚 *Order Status Update* 🚚\n\n"
+                                f"Your order (*{order_id}*) has been shipped!\n\n"
+                                "Thank you for your business!"
+                            ),
+                            parse_mode='Markdown'
+                        )
+                    except Exception as e:
+                        print(f"Failed to notify user {user_id}: {e}")
+                break
+        if status_updated:
+            break
+    
+    # Return to order view
+    await admin_view_orders(update, context)
+
+async def admin_handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle admin panel navigation"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'admin_next_page':
+        context.user_data['admin_order_page'] = context.user_data.get('admin_order_page', 0) + 1
+    elif query.data == 'admin_prev_page':
+        context.user_data['admin_order_page'] = max(0, context.user_data.get('admin_order_page', 0) - 1)
+    
+    await admin_view_orders(update, context)
+
+async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Display order statistics"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    # Collect all orders
+    all_orders = []
+    for user_orders in USER_ORDERS.values():
+        all_orders.extend(user_orders)
+    
+    # Calculate statistics
+    total_orders = len(all_orders)
+    if total_orders == 0:
+        stats_message = "📊 *No orders to analyze*"
+    else:
+        total_revenue = sum(order['total'] for order in all_orders)
+        status_counts = {}
+        payment_methods = {}
+        product_quantities = {}
+        
+        for order in all_orders:
+            # Count statuses
+            status_counts[order['status']] = status_counts.get(order['status'], 0) + 1
+            
+            # Count payment methods
+            payment_methods[order['payment_method']] = payment_methods.get(order['payment_method'], 0) + 1
+            
+            # Count product quantities
+            for cart_key, quantity in order['items'].items():
+                product_name = cart_key.split('_')[0]
+                product_quantities[product_name] = product_quantities.get(product_name, 0) + quantity
+        
+        stats_message = (
+            "📊 *Order Statistics* 📊\n\n"
+            f"*Total Orders:* {total_orders}\n"
+            f"*Total Revenue:* ${total_revenue:.2f}\n\n"
+            "*Order Status Breakdown:*\n"
+        )
+        
+        for status, count in status_counts.items():
+            percentage = (count / total_orders) * 100
+            stats_message += f"• {status.title()}: {count} ({percentage:.1f}%)\n"
+        
+        stats_message += "\n*Payment Methods:*\n"
+        for method, count in payment_methods.items():
+            percentage = (count / total_orders) * 100
+            stats_message += f"• {method.title()}: {count} ({percentage:.1f}%)\n"
+        
+        stats_message += "\n*Popular Products:*\n"
+        sorted_products = sorted(product_quantities.items(), key=lambda x: x[1], reverse=True)
+        for product, quantity in sorted_products:
+            stats_message += f"• {product}: {quantity}g sold\n"
+    
+    keyboard = [[InlineKeyboardButton("↩️ Back to Admin Panel", callback_data='admin_panel')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(stats_message, reply_markup=reply_markup, parse_mode='Markdown')
+
+# Update the handle_callback function to include admin commands
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle all callback queries"""
     query = update.callback_query
     
+    # Admin panel callbacks
+    if query.data.startswith('admin_'):
+        if update.effective_user.username != ADMIN_USERNAME:
+            await query.answer("⚠️ Access denied: Admin only", show_alert=True)
+            return
+            
+        if query.data == 'admin_panel':
+            await admin_panel(update, context)
+        elif query.data == 'admin_view_orders':
+            context.user_data['admin_order_page'] = 0  # Reset page when viewing orders
+            await admin_view_orders(update, context)
+        elif query.data in ['admin_next_page', 'admin_prev_page']:
+            await admin_handle_navigation(update, context)
+        elif query.data.startswith('admin_update_status_'):
+            await admin_update_status(update, context)
+        elif query.data.startswith('admin_set_status_'):
+            await admin_set_status(update, context)
+        elif query.data == 'admin_stats':
+            await admin_stats(update, context)
+        return
+    
+    # Existing callback handlers
     if query.data == 'start':
         await send_main_menu(update, context, is_callback=True)
     elif query.data == 'help':
