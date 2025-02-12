@@ -135,6 +135,11 @@ USER_ORDERS = {}  # Store order history for users
 # Add after other global variables
 ADMIN_USERNAME = "CrackerJackson"
 
+# Add after global variables
+DATA_DIR = "data"
+ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
+CARTS_FILE = os.path.join(DATA_DIR, "carts.json")
+
 def format_price(price):
     """Format price with 2 decimal places and $ symbol"""
     return f"${price:.2f}"
@@ -810,9 +815,10 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order_id = CHECKOUT_STEPS[user_id]['order_id']
     
     # Find the order and update its status
-    for order in USER_ORDERS[user_id]:
+    for order in USER_ORDERS.get(user_id, []):
         if order['order_id'] == order_id:
             order['status'] = 'processing'
+            save_data()  # Save after updating order status
             
             confirmation_message = (
                 "🎉 *Order Successfully Placed!* 🎉\n"
@@ -1211,19 +1217,22 @@ async def admin_set_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    _, _, order_id, new_status = query.data.split('_')
+    # Extract order_id and new_status from callback data
+    parts = query.data.split('_')
+    order_id = parts[-2]  # Second to last part is order_id
+    new_status = parts[-1]  # Last part is the status
     
     # Update order status
     status_updated = False
-    for user_orders in USER_ORDERS.values():
+    for user_id, user_orders in USER_ORDERS.items():
         for order in user_orders:
             if order['order_id'] == order_id:
                 order['status'] = new_status
                 status_updated = True
+                save_data()  # Save after updating order status
                 
                 # If order is marked as shipped, notify the customer
                 if new_status == 'shipped':
-                    user_id = int(order_id.split('-')[2])  # Extract user_id from order_id
                     try:
                         await context.bot.send_message(
                             chat_id=user_id,
@@ -1239,6 +1248,9 @@ async def admin_set_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
         if status_updated:
             break
+    
+    # Show confirmation message
+    await query.answer(f"Order status updated to: {new_status}")
     
     # Return to order view
     await admin_view_orders(update, context)
@@ -1392,12 +1404,45 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif user_id in CHECKOUT_STEPS and CHECKOUT_STEPS[user_id]['step'] == 'shipping':
         await handle_shipping_info(update, context)
 
+def save_data():
+    """Save orders and carts to files"""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    
+    # Save orders
+    with open(ORDERS_FILE, 'w') as f:
+        json.dump(USER_ORDERS, f)
+    
+    # Save carts
+    with open(CARTS_FILE, 'w') as f:
+        # Convert user IDs to strings for JSON serialization
+        carts_data = {str(k): v for k, v in SHOPPING_CARTS.items()}
+        json.dump(carts_data, f)
+
+def load_data():
+    """Load orders and carts from files"""
+    global USER_ORDERS, SHOPPING_CARTS
+    
+    # Load orders
+    if os.path.exists(ORDERS_FILE):
+        with open(ORDERS_FILE, 'r') as f:
+            USER_ORDERS = json.load(f)
+    
+    # Load carts
+    if os.path.exists(CARTS_FILE):
+        with open(CARTS_FILE, 'r') as f:
+            carts_data = json.load(f)
+            # Convert user IDs back to integers
+            SHOPPING_CARTS = {int(k): v for k, v in carts_data.items()}
+
 def main():
     """Start the bot."""
     token = os.getenv('TELEGRAM_TOKEN')
     if not token:
         logger.error("No token found! Make sure to set TELEGRAM_TOKEN environment variable.")
         return
+
+    # Load saved data
+    load_data()
 
     application = Application.builder().token(token).build()
 

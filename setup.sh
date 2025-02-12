@@ -8,6 +8,12 @@ NC='\033[0m' # No Color
 
 echo -e "${GREEN}Starting bot setup/update process...${NC}"
 
+# Create data directory if it doesn't exist
+if [ ! -d "data" ]; then
+    echo -e "${YELLOW}Creating data directory...${NC}"
+    mkdir -p data
+fi
+
 # Check if .env exists, if not create it
 if [ ! -f .env ]; then
     echo -e "${YELLOW}No .env file found. Creating one...${NC}"
@@ -25,6 +31,15 @@ fi
 
 # Activate virtual environment
 source venv/bin/activate
+
+# Backup existing data if exists
+echo -e "${YELLOW}Backing up existing data...${NC}"
+if [ -f "data/orders.json" ]; then
+    cp data/orders.json data/orders.json.backup
+fi
+if [ -f "data/carts.json" ]; then
+    cp data/carts.json data/carts.json.backup
+fi
 
 # Pull latest changes from git
 echo -e "${YELLOW}Pulling latest changes from repository...${NC}"
@@ -65,6 +80,15 @@ EOL
     # Enable the service
     sudo systemctl enable telegrambot.service
     echo -e "${GREEN}Systemd service created and enabled!${NC}"
+fi
+
+# Restore data backups if they exist
+echo -e "${YELLOW}Restoring data from backups...${NC}"
+if [ -f "data/orders.json.backup" ]; then
+    mv data/orders.json.backup data/orders.json
+fi
+if [ -f "data/carts.json.backup" ]; then
+    mv data/carts.json.backup data/carts.json
 fi
 
 # Restart the service
