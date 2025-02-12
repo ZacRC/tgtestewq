@@ -878,12 +878,16 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data()
 
 async def view_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Display user's order history"""
+    """Display user's order history with pagination"""
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
     orders = USER_ORDERS.get(user_id, [])
+    
+    # Get page number from context or start at 0
+    page = context.user_data.get('user_order_page', 0)
+    orders_per_page = 5
     
     if not orders:
         orders_message = (
@@ -894,27 +898,40 @@ async def view_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         keyboard = [
-            [InlineKeyboardButton(" Start Shopping", callback_data='view_products')],
-            [InlineKeyboardButton("🔙 Return to Main Menu", callback_data='start')]
+            [InlineKeyboardButton("Start Shopping", callback_data='view_products')],
+            [InlineKeyboardButton("↩️ Return to Main Menu", callback_data='start')]
         ]
     else:
-        orders_message = "📦 *Your Order History* 📦\n\n"
+        # Sort orders by date (newest first)
+        orders.sort(key=lambda x: datetime.strptime(x['date'], "%Y-%m-%d %H:%M:%S"), reverse=True)
         
-        # Show last 5 orders
-        for order in orders[-5:]:
+        total_pages = (len(orders) + orders_per_page - 1) // orders_per_page
+        
+        # Ensure page is within valid range
+        page = min(max(0, page), total_pages - 1)
+        context.user_data['user_order_page'] = page
+        
+        start_idx = page * orders_per_page
+        end_idx = min(start_idx + orders_per_page, len(orders))
+        current_orders = orders[start_idx:end_idx]
+        
+        orders_message = f"📦 *Your Order History* 📦\nPage {page + 1} of {total_pages}\n\n"
+        
+        for order in current_orders:
             status_emoji = {
                 'pending': '⏳',
                 'processing': '🔄',
                 'shipped': '🚚',
                 'delivered': '✅',
                 'cancelled': '❌'
-            }.get(order['status'], '⏳')
+            }.get(order.get('status', 'pending'), '⏳')
             
             orders_message += (
                 f"*Order ID:* `{order['order_id']}`\n"
                 f"*Date:* {order['date']}\n"
                 f"*Status:* {status_emoji} {order['status'].title()}\n"
                 f"*Total:* {format_price(order['total'])}\n\n"
+                "*Items:*\n"
             )
             
             # Display items in order
@@ -928,15 +945,39 @@ async def view_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         orders_message += f"• Product: N/A {cart_key}g × {quantity}\n"
             orders_message += "─────────────────\n"
         
-        # Order history buttons
-        keyboard = [
+        # Create navigation buttons
+        keyboard = []
+        nav_buttons = []
+        
+        if page > 0:
+            nav_buttons.append(InlineKeyboardButton("⬅️ Previous", callback_data='user_prev_page'))
+        if page < total_pages - 1:
+            nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data='user_next_page'))
+        
+        if nav_buttons:
+            keyboard.append(nav_buttons)
+        
+        # Add action buttons
+        keyboard.extend([
             [InlineKeyboardButton("Update Shipping", callback_data='update_shipping')],
             [InlineKeyboardButton("New Order", callback_data='view_products')],
             [InlineKeyboardButton("↩️ Menu", callback_data='start')]
-        ]
+        ])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(orders_message, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def handle_user_order_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle user order history navigation"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'user_next_page':
+        context.user_data['user_order_page'] = context.user_data.get('user_order_page', 0) + 1
+    elif query.data == 'user_prev_page':
+        context.user_data['user_order_page'] = max(0, context.user_data.get('user_order_page', 0) - 1)
+    
+    await view_orders(update, context)
 
 async def update_shipping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Allow users to update shipping address for pending orders"""
@@ -1375,6 +1416,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await admin_stats(update, context)
         return
     
+    # User order navigation
+    if query.data in ['user_next_page', 'user_prev_page']:
+        await handle_user_order_navigation(update, context)
+        return
+    
     # Existing callback handlers
     if query.data == 'start':
         await send_main_menu(update, context, is_callback=True)
@@ -1401,6 +1447,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'confirm_payment':
         await confirm_payment(update, context)
     elif query.data == 'view_orders':
+        context.user_data['user_order_page'] = 0  # Reset page when viewing orders
         await view_orders(update, context)
     elif query.data == 'update_shipping':
         await update_shipping(update, context)
