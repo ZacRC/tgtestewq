@@ -84,42 +84,34 @@ GRASS_PRODUCTS = {
 
 # Add this after GRASS_PRODUCTS declaration
 PRODUCT_CATALOG = {
-    "Blue Dream": {
-        "name": "Blue Dream",
-        "description": "Sweet berry aroma with balanced full body relaxation",
-        "type": "Hybrid",
-        "thc": "18-24%",
+    "Columbia Benz Stamp": {
+        "name": "❄️ Columbia \"Benz Stamp\" ❄️",
+        "description": "Benz Stamp is from Columbia. Benz is shiny white color, fishscale, very numbing. Easy on the nose, STRONG and extreamly pure.",
+        "type": "Premium",
+        "purity": "96%",
         "prices": GRASS_PRODUCTS
     },
-    "OG Kush": {
-        "name": "OG Kush",
-        "description": "Classic strain with earthy pine and sour lemon notes",
-        "type": "Hybrid",
-        "thc": "20-25%",
+    "Peru Pablo Stamp": {
+        "name": "❄️ Peru \"Pablo Stamp\" ❄️",
+        "description": "Pablo Stamp is from Peru. Pablo is talktive, smooth and socialable. This is our budget option for your best bang for your buck.",
+        "type": "Budget",
+        "purity": "87%",
         "prices": GRASS_PRODUCTS
     },
-    "Purple Haze": {
-        "name": "Purple Haze",
-        "description": "Sweet and earthy with berry and grape notes",
-        "type": "Sativa",
-        "thc": "16-20%",
-        "prices": GRASS_PRODUCTS
-    },
-    "Northern Lights": {
-        "name": "Northern Lights",
-        "description": "Sweet and spicy with crystal trichomes",
-        "type": "Indica",
-        "thc": "16-21%",
+    "Columbian Fishscale": {
+        "name": "❄️ Columbian Fishscale ❄️",
+        "description": "If you want what to be nostolgic and want that true 80s blow this is from our famous \"Smile Stamp\" extreamly euphoric and socialiable.",
+        "type": "Classic",
+        "purity": "90%",
         "prices": GRASS_PRODUCTS
     }
 }
 
 # Add this after PRODUCT_CATALOG declaration
 PRODUCT_IMAGES = {
-    "Blue Dream": "https://i.imgur.com/CsY7GcA.png",
-    "OG Kush": "https://i.imgur.com/47uY36h.png",
-    "Purple Haze": "https://i.imgur.com/N9QS7tq.png",
-    "Northern Lights": "https://i.imgur.com/pZEcGUf.png"
+    "Columbia Benz Stamp": "https://i.imgur.com/CsY7GcA.png",
+    "Peru Pablo Stamp": "https://i.imgur.com/47uY36h.png",
+    "Columbian Fishscale": "https://i.imgur.com/N9QS7tq.png"
 }
 
 # Shopping cart storage (in-memory for demonstration)
@@ -337,10 +329,10 @@ async def view_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cart_summary = get_cart_summary(cart) if cart else ""
     
     message = (
-        f"🌿 *{current_product['name']}* 🌿\n"
+        f"{current_product['name']}\n"
         "─────────────────\n"
         f"*Type:* {current_product['type']}\n"
-        f"*THC:* {current_product['thc']}\n\n"
+        f"*Purity:* {current_product['purity']}\n\n"
         f"*Description:*\n{current_product['description']}\n"
         "─────────────────\n"
     )
@@ -377,7 +369,7 @@ async def view_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # If there's already a photo, edit the message
         await query.message.edit_media(
             media=InputMediaPhoto(
-                media=PRODUCT_IMAGES[current_product['name']],
+                media=PRODUCT_IMAGES[current_product['name'].replace("❄️ ", "").replace(" ❄️", "")],
                 caption=message,
                 parse_mode='Markdown'
             ),
@@ -388,7 +380,7 @@ async def view_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.delete()
         await context.bot.send_photo(
             chat_id=update.effective_chat.id,
-            photo=PRODUCT_IMAGES[current_product['name']],
+            photo=PRODUCT_IMAGES[current_product['name'].replace("❄️ ", "").replace(" ❄️", "")],
             caption=message,
             reply_markup=reply_markup,
             parse_mode='Markdown'
