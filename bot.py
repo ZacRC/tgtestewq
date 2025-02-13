@@ -923,7 +923,8 @@ async def view_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"*Order ID:* `{order['order_id']}`\n"
                 f"*Date:* {order['date']}\n"
                 f"*Status:* {status_emoji} {order['status'].title()}\n"
-                f"*Total:* {format_price(order['total'])}\n\n"
+                f"*Total:* {format_price(order['total'])}\n"
+                f"*Payment:* {order['payment_method'].title()}\n\n"
                 "*Items:*\n"
             )
             
@@ -1543,12 +1544,19 @@ async def admin_manage_products(update: Update, context: ContextTypes.DEFAULT_TY
     
     # List all products with edit buttons
     for product_name in PRODUCT_CATALOG.keys():
-        message += f"• {product_name}\n"
-        keyboard.append([
-            InlineKeyboardButton(
-                f"✏️ Edit {product_name}",
+        message += (
+            f"• {product_name}\n"
+            f"  Description: {PRODUCT_CATALOG[product_name]['description']}\n\n"
+        )
+        keyboard.extend([
+            [InlineKeyboardButton(
+                f"✏️ Edit Name - {product_name}",
                 callback_data=f'admin_edit_product_{product_name}'
-            )
+            )],
+            [InlineKeyboardButton(
+                f"📝 Edit Description - {product_name}",
+                callback_data=f'admin_edit_desc_{product_name}'
+            )]
         ])
     
     keyboard.append([InlineKeyboardButton("↩️ Back to Admin Panel", callback_data='admin_panel')])
@@ -1635,6 +1643,69 @@ async def handle_product_name_update(update: Update, context: ContextTypes.DEFAU
     
     await update.message.reply_text(confirmation, reply_markup=reply_markup, parse_mode='Markdown')
 
+async def admin_edit_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start the product description editing process"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    # Extract product name from callback data
+    product_name = '_'.join(query.data.split('_')[3:])  # Get everything after 'admin_edit_desc_'
+    
+    message = (
+        f"📝 *Edit Description: {product_name}* 📝\n\n"
+        "*Current Description:*\n"
+        f"{PRODUCT_CATALOG[product_name]['description']}\n\n"
+        "Please enter the new description for this product.\n"
+        "Send the description as a message."
+    )
+    
+    # Store the product being edited in context
+    context.user_data['editing_product_desc'] = product_name
+    
+    keyboard = [[InlineKeyboardButton("🔙 Cancel", callback_data='admin_manage_products')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def handle_description_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Process the product description update"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    new_description = update.message.text.strip()
+    product_name = context.user_data.get('editing_product_desc')
+    
+    if not product_name or product_name not in PRODUCT_CATALOG:
+        await update.message.reply_text(
+            "❌ Error: Product not found or edit session expired.\n"
+            "Please try again from the product management menu."
+        )
+        return
+    
+    # Update the product description
+    PRODUCT_CATALOG[product_name]['description'] = new_description
+    
+    # Clear the editing state
+    del context.user_data['editing_product_desc']
+    
+    confirmation = (
+        "✅ *Product Description Updated Successfully* ✅\n\n"
+        f"Product: {product_name}\n"
+        f"New Description: {new_description}\n\n"
+        "The description has been updated successfully."
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("📋 Back to Products", callback_data='admin_manage_products')],
+        [InlineKeyboardButton("🏠 Admin Panel", callback_data='admin_panel')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(confirmation, reply_markup=reply_markup, parse_mode='Markdown')
+
 # Update handle_callback to include product management
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle all callback queries"""
@@ -1655,6 +1726,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await admin_manage_products(update, context)
         elif query.data.startswith('admin_edit_product_'):
             await admin_edit_product(update, context)
+        elif query.data.startswith('admin_edit_desc_'):
+            await admin_edit_description(update, context)
         elif query.data in ['admin_next_page', 'admin_prev_page']:
             await admin_handle_navigation(update, context)
         elif query.data.startswith('admin_update_status_'):
@@ -1718,6 +1791,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Route text messages to appropriate handlers"""
     user_id = update.effective_user.id
+    
+    # Handle product description update
+    if update.effective_user.username == ADMIN_USERNAME and 'editing_product_desc' in context.user_data:
+        await handle_description_update(update, context)
+        return
     
     # Handle product name update
     if update.effective_user.username == ADMIN_USERNAME and 'editing_product' in context.user_data:
