@@ -139,7 +139,7 @@ ADMIN_USERNAME = "CrackerJackson"
 DATA_DIR = "data"
 ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 CARTS_FILE = os.path.join(DATA_DIR, "carts.json")
-PRODUCTS_FILE = os.path.join(DATA_DIR, "products.json")
+CATALOG_FILE = os.path.join(DATA_DIR, "catalog.json")
 
 def format_price(price):
     """Format price with 2 decimal places and $ symbol"""
@@ -1206,16 +1206,12 @@ async def admin_view_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "*Items:*\n"
             )
             
-            # Display items in order
-            if isinstance(order.get('items', {}), dict):
-                for cart_key, quantity in order['items'].items():
-                    if '_' in cart_key:
-                        product_name, weight = cart_key.split('_')
-                        orders_message += f"• {product_name} {weight}g × {quantity}\n"
-                    else:
-                        # Handle legacy orders
-                        orders_message += f"• Product: N/A {cart_key}g × {quantity}\n"
-            orders_message += "─────────────────\n"
+            for cart_key, quantity in order['items'].items():
+                product_name, weight = cart_key.split('_')
+                message += f"• {product_name} {weight}g × {quantity}\n"
+            
+            message += f"\n*Shipping Info:*\n{order['shipping_info']}\n"
+            message += "\n─────────────────\n\n"
         
         message += f"Page {page + 1} of {total_pages}"
         
@@ -1614,7 +1610,7 @@ async def handle_product_name_update(update: Update, context: ContextTypes.DEFAU
         )
         return
     
-    if new_name in PRODUCT_CATALOG and new_name != old_name:
+    if new_name in PRODUCT_CATALOG:
         await update.message.reply_text(
             "❌ Error: A product with this name already exists.\n"
             "Please choose a different name."
@@ -1628,9 +1624,6 @@ async def handle_product_name_update(update: Update, context: ContextTypes.DEFAU
     # Update product images mapping
     if old_name in PRODUCT_IMAGES:
         PRODUCT_IMAGES[new_name] = PRODUCT_IMAGES.pop(old_name)
-    
-    # Save changes immediately
-    save_data()
     
     # Clear the editing state
     del context.user_data['editing_product']
@@ -1695,9 +1688,6 @@ async def handle_description_update(update: Update, context: ContextTypes.DEFAUL
     
     # Update the product description
     PRODUCT_CATALOG[product_name]['description'] = new_description
-    
-    # Save changes immediately
-    save_data()
     
     # Clear the editing state
     del context.user_data['editing_product_desc']
@@ -1838,8 +1828,11 @@ def save_data():
             json.dump(carts_data, f, indent=2)
             
         # Save product catalog
-        with open(PRODUCTS_FILE, 'w') as f:
-            json.dump(PRODUCT_CATALOG, f, indent=2)
+        with open(CATALOG_FILE, 'w') as f:
+            json.dump({
+                'catalog': PRODUCT_CATALOG,
+                'images': PRODUCT_IMAGES
+            }, f, indent=2)
             
     except Exception as e:
         logger.error(f"Error saving data: {e}")
@@ -1868,25 +1861,11 @@ def load_data():
             SHOPPING_CARTS = {}
             
         # Load product catalog
-        if os.path.exists(PRODUCTS_FILE):
-            with open(PRODUCTS_FILE, 'r') as f:
-                loaded_catalog = json.load(f)
-                PRODUCT_CATALOG.update(loaded_catalog)
-                
-                # Update PRODUCT_IMAGES to match any name changes
-                new_images = {}
-                for i, name in enumerate(PRODUCT_CATALOG.keys()):
-                    if name in PRODUCT_IMAGES:
-                        new_images[name] = PRODUCT_IMAGES[name]
-                    else:
-                        # Try to map from old image if available
-                        old_keys = list(PRODUCT_IMAGES.keys())
-                        if i < len(old_keys):
-                            new_images[name] = PRODUCT_IMAGES[old_keys[i]]
-                        else:
-                            new_images[name] = ""
-                PRODUCT_IMAGES.clear()
-                PRODUCT_IMAGES.update(new_images)
+        if os.path.exists(CATALOG_FILE):
+            with open(CATALOG_FILE, 'r') as f:
+                catalog_data = json.load(f)
+                PRODUCT_CATALOG.update(catalog_data['catalog'])
+                PRODUCT_IMAGES.update(catalog_data['images'])
                 
     except Exception as e:
         logger.error(f"Error loading data: {e}")
