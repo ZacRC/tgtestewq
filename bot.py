@@ -139,6 +139,42 @@ ADMIN_USERNAME = "CrackerJackson"
 DATA_DIR = "data"
 ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 CARTS_FILE = os.path.join(DATA_DIR, "carts.json")
+PRODUCTS_FILE = os.path.join(DATA_DIR, "products.json")
+
+# Default product catalog (used only if no saved data exists)
+DEFAULT_PRODUCT_CATALOG = {
+    "Blue Dream": {
+        "name": "Blue Dream",
+        "description": "Sweet berry aroma with balanced full body relaxation",
+        "type": "Hybrid",
+        "thc": "18-24%",
+        "prices": GRASS_PRODUCTS
+    },
+    "OG Kush": {
+        "name": "OG Kush",
+        "description": "Classic strain with earthy pine and sour lemon notes",
+        "type": "Hybrid",
+        "thc": "20-25%",
+        "prices": GRASS_PRODUCTS
+    },
+    "Purple Haze": {
+        "name": "Purple Haze",
+        "description": "Sweet and earthy with berry and grape notes",
+        "type": "Sativa",
+        "thc": "16-20%",
+        "prices": GRASS_PRODUCTS
+    },
+    "Northern Lights": {
+        "name": "Northern Lights",
+        "description": "Sweet and spicy with crystal trichomes",
+        "type": "Indica",
+        "thc": "16-21%",
+        "prices": GRASS_PRODUCTS
+    }
+}
+
+# Initialize as None, will be loaded from file or set to default
+PRODUCT_CATALOG = None
 
 def format_price(price):
     """Format price with 2 decimal places and $ symbol"""
@@ -1205,12 +1241,16 @@ async def admin_view_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "*Items:*\n"
             )
             
-            for cart_key, quantity in order['items'].items():
-                product_name, weight = cart_key.split('_')
-                message += f"• {product_name} {weight}g × {quantity}\n"
-            
-            message += f"\n*Shipping Info:*\n{order['shipping_info']}\n"
-            message += "\n─────────────────\n\n"
+            # Display items in order
+            if isinstance(order.get('items', {}), dict):
+                for cart_key, quantity in order['items'].items():
+                    if '_' in cart_key:
+                        product_name, weight = cart_key.split('_')
+                        message += f"• {product_name} {weight}g × {quantity}\n"
+                    else:
+                        # Handle legacy orders
+                        message += f"• Product: N/A {cart_key}g × {quantity}\n"
+            message += "─────────────────\n\n"
         
         message += f"Page {page + 1} of {total_pages}"
         
@@ -1624,6 +1664,9 @@ async def handle_product_name_update(update: Update, context: ContextTypes.DEFAU
     if old_name in PRODUCT_IMAGES:
         PRODUCT_IMAGES[new_name] = PRODUCT_IMAGES.pop(old_name)
     
+    # Save changes immediately
+    save_data()
+    
     # Clear the editing state
     del context.user_data['editing_product']
     
@@ -1643,33 +1686,6 @@ async def handle_product_name_update(update: Update, context: ContextTypes.DEFAU
     
     await update.message.reply_text(confirmation, reply_markup=reply_markup, parse_mode='Markdown')
 
-async def admin_edit_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start the product description editing process"""
-    if update.effective_user.username != ADMIN_USERNAME:
-        return
-    
-    query = update.callback_query
-    await query.answer()
-    
-    # Extract product name from callback data
-    product_name = '_'.join(query.data.split('_')[3:])  # Get everything after 'admin_edit_desc_'
-    
-    message = (
-        f"📝 *Edit Description: {product_name}* 📝\n\n"
-        "*Current Description:*\n"
-        f"{PRODUCT_CATALOG[product_name]['description']}\n\n"
-        "Please enter the new description for this product.\n"
-        "Send the description as a message."
-    )
-    
-    # Store the product being edited in context
-    context.user_data['editing_product_desc'] = product_name
-    
-    keyboard = [[InlineKeyboardButton("🔙 Cancel", callback_data='admin_manage_products')]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
-
 async def handle_description_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Process the product description update"""
     if update.effective_user.username != ADMIN_USERNAME:
@@ -1687,6 +1703,9 @@ async def handle_description_update(update: Update, context: ContextTypes.DEFAUL
     
     # Update the product description
     PRODUCT_CATALOG[product_name]['description'] = new_description
+    
+    # Save changes immediately
+    save_data()
     
     # Clear the editing state
     del context.user_data['editing_product_desc']
@@ -1810,7 +1829,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_shipping_info(update, context)
 
 def save_data():
-    """Save orders and carts to files"""
+    """Save orders, carts, and products to files"""
     os.makedirs(DATA_DIR, exist_ok=True)
     
     try:
@@ -1825,12 +1844,17 @@ def save_data():
             # Convert user IDs to strings for JSON serialization
             carts_data = {str(k): v for k, v in SHOPPING_CARTS.items()}
             json.dump(carts_data, f, indent=2)
+            
+        # Save products with proper formatting
+        with open(PRODUCTS_FILE, 'w') as f:
+            json.dump(PRODUCT_CATALOG, f, indent=2)
+            
     except Exception as e:
         logger.error(f"Error saving data: {e}")
 
 def load_data():
-    """Load orders and carts from files"""
-    global USER_ORDERS, SHOPPING_CARTS
+    """Load orders, carts, and products from files"""
+    global USER_ORDERS, SHOPPING_CARTS, PRODUCT_CATALOG
     
     try:
         # Load orders
@@ -1850,10 +1874,23 @@ def load_data():
                 SHOPPING_CARTS = {int(k): v for k, v in carts_data.items()}
         else:
             SHOPPING_CARTS = {}
+            
+        # Load products
+        if os.path.exists(PRODUCTS_FILE):
+            with open(PRODUCTS_FILE, 'r') as f:
+                PRODUCT_CATALOG = json.load(f)
+        else:
+            # Use default catalog if no saved data exists
+            PRODUCT_CATALOG = DEFAULT_PRODUCT_CATALOG.copy()
+            # Save it immediately
+            with open(PRODUCTS_FILE, 'w') as f:
+                json.dump(PRODUCT_CATALOG, f, indent=2)
+                
     except Exception as e:
         logger.error(f"Error loading data: {e}")
         USER_ORDERS = {}
         SHOPPING_CARTS = {}
+        PRODUCT_CATALOG = DEFAULT_PRODUCT_CATALOG.copy()
 
 def main():
     """Start the bot."""
