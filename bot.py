@@ -174,7 +174,7 @@ DEFAULT_PRODUCT_CATALOG = {
 }
 
 # Initialize as None, will be loaded from file or set to default
-PRODUCT_CATALOG = None
+PRODUCT_CATALOG = DEFAULT_PRODUCT_CATALOG.copy()
 
 def format_price(price):
     """Format price with 2 decimal places and $ symbol"""
@@ -1725,6 +1725,33 @@ async def handle_description_update(update: Update, context: ContextTypes.DEFAUL
     
     await update.message.reply_text(confirmation, reply_markup=reply_markup, parse_mode='Markdown')
 
+async def admin_edit_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start the product description editing process"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    # Extract product name from callback data
+    product_name = '_'.join(query.data.split('_')[3:])  # Get everything after 'admin_edit_desc_'
+    
+    message = (
+        f"📝 *Edit Description: {product_name}* 📝\n\n"
+        "*Current Description:*\n"
+        f"{PRODUCT_CATALOG[product_name]['description']}\n\n"
+        "Please enter the new description for this product.\n"
+        "Send the description as a message."
+    )
+    
+    # Store the product being edited in context
+    context.user_data['editing_product_desc'] = product_name
+    
+    keyboard = [[InlineKeyboardButton("🔙 Cancel", callback_data='admin_manage_products')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+
 # Update handle_callback to include product management
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle all callback queries"""
@@ -1878,7 +1905,12 @@ def load_data():
         # Load products
         if os.path.exists(PRODUCTS_FILE):
             with open(PRODUCTS_FILE, 'r') as f:
-                PRODUCT_CATALOG = json.load(f)
+                loaded_catalog = json.load(f)
+                # Ensure all required fields are present
+                for product_name, product_data in loaded_catalog.items():
+                    if 'prices' not in product_data:
+                        product_data['prices'] = GRASS_PRODUCTS
+                PRODUCT_CATALOG = loaded_catalog
         else:
             # Use default catalog if no saved data exists
             PRODUCT_CATALOG = DEFAULT_PRODUCT_CATALOG.copy()
@@ -1891,6 +1923,13 @@ def load_data():
         USER_ORDERS = {}
         SHOPPING_CARTS = {}
         PRODUCT_CATALOG = DEFAULT_PRODUCT_CATALOG.copy()
+        # Try to save the default catalog
+        try:
+            os.makedirs(DATA_DIR, exist_ok=True)
+            with open(PRODUCTS_FILE, 'w') as f:
+                json.dump(PRODUCT_CATALOG, f, indent=2)
+        except Exception as save_error:
+            logger.error(f"Error saving default product catalog: {save_error}")
 
 def main():
     """Start the bot."""
