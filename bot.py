@@ -1660,9 +1660,13 @@ async def handle_product_name_update(update: Update, context: ContextTypes.DEFAU
     PRODUCT_CATALOG[new_name] = PRODUCT_CATALOG.pop(old_name)
     PRODUCT_CATALOG[new_name]['name'] = new_name
     
-    # Update product images mapping
+    # Update product images mapping if the old name exists in PRODUCT_IMAGES
     if old_name in PRODUCT_IMAGES:
-        PRODUCT_IMAGES[new_name] = PRODUCT_IMAGES.pop(old_name)
+        PRODUCT_IMAGES[new_name] = PRODUCT_IMAGES[old_name]
+        del PRODUCT_IMAGES[old_name]
+    else:
+        # If no image exists for the old name, use a default image URL
+        PRODUCT_IMAGES[new_name] = "https://i.imgur.com/CsY7GcA.png"  # Default image
     
     # Save changes immediately
     save_data()
