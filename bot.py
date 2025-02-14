@@ -83,7 +83,7 @@ GRASS_PRODUCTS = {
 }
 
 # Add this after GRASS_PRODUCTS declaration
-PRODUCT_CATALOG = {
+DEFAULT_PRODUCT_CATALOG = {
     "Blue Dream": {
         "name": "Blue Dream",
         "description": "Sweet berry aroma with balanced full body relaxation",
@@ -114,13 +114,19 @@ PRODUCT_CATALOG = {
     }
 }
 
-# Add this after PRODUCT_CATALOG declaration
-PRODUCT_IMAGES = {
+# Initialize with default values
+PRODUCT_CATALOG = {}
+
+# Add this after DEFAULT_PRODUCT_CATALOG
+DEFAULT_PRODUCT_IMAGES = {
     "Blue Dream": "https://i.imgur.com/CsY7GcA.png",
     "OG Kush": "https://i.imgur.com/47uY36h.png",
     "Purple Haze": "https://i.imgur.com/N9QS7tq.png",
     "Northern Lights": "https://i.imgur.com/pZEcGUf.png"
 }
+
+# Initialize with default values
+PRODUCT_IMAGES = {}
 
 # Shopping cart storage (in-memory for demonstration)
 SHOPPING_CARTS = {}
@@ -1860,17 +1866,37 @@ def load_data():
         else:
             SHOPPING_CARTS = {}
             
-        # Load product catalog
+        # First, initialize with default values
+        PRODUCT_CATALOG.clear()
+        PRODUCT_CATALOG.update(DEFAULT_PRODUCT_CATALOG)
+        PRODUCT_IMAGES.clear()
+        PRODUCT_IMAGES.update(DEFAULT_PRODUCT_IMAGES)
+        
+        # Then load saved catalog data if it exists
         if os.path.exists(CATALOG_FILE):
             with open(CATALOG_FILE, 'r') as f:
                 catalog_data = json.load(f)
-                PRODUCT_CATALOG.update(catalog_data['catalog'])
-                PRODUCT_IMAGES.update(catalog_data['images'])
+                if catalog_data.get('catalog'):
+                    # Update only existing products to preserve structure
+                    for product_name, product_data in catalog_data['catalog'].items():
+                        if product_name in PRODUCT_CATALOG:
+                            # Preserve the prices and other default fields
+                            saved_data = product_data.copy()
+                            saved_data['prices'] = PRODUCT_CATALOG[product_name]['prices']
+                            saved_data['type'] = PRODUCT_CATALOG[product_name]['type']
+                            saved_data['thc'] = PRODUCT_CATALOG[product_name]['thc']
+                            PRODUCT_CATALOG[product_name] = saved_data
+                        
+                if catalog_data.get('images'):
+                    PRODUCT_IMAGES.update(catalog_data['images'])
                 
     except Exception as e:
         logger.error(f"Error loading data: {e}")
-        USER_ORDERS = {}
-        SHOPPING_CARTS = {}
+        # If there's an error, ensure we at least have the defaults
+        if not PRODUCT_CATALOG:
+            PRODUCT_CATALOG.update(DEFAULT_PRODUCT_CATALOG)
+        if not PRODUCT_IMAGES:
+            PRODUCT_IMAGES.update(DEFAULT_PRODUCT_IMAGES)
 
 def main():
     """Start the bot."""
