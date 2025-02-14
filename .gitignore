@@ -29,3 +29,6 @@ wheels/
 # System Files
 .DS_Store
 Thumbs.db 
+data/catalog.json
+data/orders.json
+data/carts.json       

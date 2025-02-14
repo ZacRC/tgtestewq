@@ -1611,15 +1611,13 @@ async def handle_product_name_update(update: Update, context: ContextTypes.DEFAU
     
     if not old_name or old_name not in PRODUCT_CATALOG:
         await update.message.reply_text(
-            "❌ Error: Product not found or edit session expired.\n"
-            "Please try again from the product management menu."
+            "❌ Error: Product not found or edit session expired.\nPlease try again from the product management menu."
         )
         return
     
     if new_name in PRODUCT_CATALOG:
         await update.message.reply_text(
-            "❌ Error: A product with this name already exists.\n"
-            "Please choose a different name."
+            "❌ Error: A product with this name already exists.\nPlease choose a different name."
         )
         return
     
@@ -1630,6 +1628,9 @@ async def handle_product_name_update(update: Update, context: ContextTypes.DEFAU
     # Update product images mapping
     if old_name in PRODUCT_IMAGES:
         PRODUCT_IMAGES[new_name] = PRODUCT_IMAGES.pop(old_name)
+    
+    # Save the updated catalog to file
+    save_data()
     
     # Clear the editing state
     del context.user_data['editing_product']
@@ -1687,13 +1688,15 @@ async def handle_description_update(update: Update, context: ContextTypes.DEFAUL
     
     if not product_name or product_name not in PRODUCT_CATALOG:
         await update.message.reply_text(
-            "❌ Error: Product not found or edit session expired.\n"
-            "Please try again from the product management menu."
+            "❌ Error: Product not found or edit session expired.\nPlease try again from the product management menu."
         )
         return
     
     # Update the product description
     PRODUCT_CATALOG[product_name]['description'] = new_description
+    
+    # Save the updated catalog to file
+    save_data()
     
     # Clear the editing state
     del context.user_data['editing_product_desc']
@@ -1866,43 +1869,36 @@ def load_data():
         else:
             SHOPPING_CARTS = {}
             
-        # Initialize PRODUCT_CATALOG and PRODUCT_IMAGES with defaults first
+        # Initialize PRODUCT_CATALOG and PRODUCT_IMAGES
         PRODUCT_CATALOG.clear()
         PRODUCT_IMAGES.clear()
         
-        # Then load saved catalog data if it exists
         if os.path.exists(CATALOG_FILE):
             with open(CATALOG_FILE, 'r') as f:
                 catalog_data = json.load(f)
-                if catalog_data.get('catalog'):
-                    saved_catalog = catalog_data['catalog']
-                    # Start with saved data
-                    PRODUCT_CATALOG.update(saved_catalog)
-                    # Ensure all products have required fields from defaults
-                    for product_name in PRODUCT_CATALOG:
-                        if product_name in DEFAULT_PRODUCT_CATALOG:
-                            default_data = DEFAULT_PRODUCT_CATALOG[product_name]
-                            # Keep saved name and description, but ensure other default fields exist
-                            PRODUCT_CATALOG[product_name].setdefault('prices', default_data['prices'])
-                            PRODUCT_CATALOG[product_name].setdefault('type', default_data['type'])
-                            PRODUCT_CATALOG[product_name].setdefault('thc', default_data['thc'])
-                            
-                if catalog_data.get('images'):
-                    PRODUCT_IMAGES.update(catalog_data['images'])
-        
-        # If no catalog data was loaded, use defaults
-        if not PRODUCT_CATALOG:
+            # Use the saved catalog if available
+            if 'catalog' in catalog_data and isinstance(catalog_data['catalog'], dict):
+                PRODUCT_CATALOG.update(catalog_data['catalog'])
+            else:
+                # Log warning but do not overwrite saved changes
+                logger.warning("Catalog file exists but no valid 'catalog' key found.")
+            
+            if 'images' in catalog_data and isinstance(catalog_data['images'], dict):
+                PRODUCT_IMAGES.update(catalog_data['images'])
+            else:
+                logger.warning("Catalog file exists but no valid 'images' key found.")
+            
+            logger.info(f"Loaded product catalog from file: {PRODUCT_CATALOG}")
+        else:
+            # No catalog file exists, use defaults
             PRODUCT_CATALOG.update(DEFAULT_PRODUCT_CATALOG)
-        if not PRODUCT_IMAGES:
             PRODUCT_IMAGES.update(DEFAULT_PRODUCT_IMAGES)
+            logger.info("No catalog file found; using default product catalog.")
                 
     except Exception as e:
         logger.error(f"Error loading data: {e}")
-        # If there's an error, ensure we at least have the defaults
-        if not PRODUCT_CATALOG:
-            PRODUCT_CATALOG.update(DEFAULT_PRODUCT_CATALOG)
-        if not PRODUCT_IMAGES:
-            PRODUCT_IMAGES.update(DEFAULT_PRODUCT_IMAGES)
+        PRODUCT_CATALOG.update(DEFAULT_PRODUCT_CATALOG)
+        PRODUCT_IMAGES.update(DEFAULT_PRODUCT_IMAGES)
 
 def main():
     """Start the bot."""
