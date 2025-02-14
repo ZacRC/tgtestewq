@@ -1561,6 +1561,10 @@ async def admin_manage_products(update: Update, context: ContextTypes.DEFAULT_TY
             [InlineKeyboardButton(
                 f"📝 Edit Description - {product_name}",
                 callback_data=f'admin_edit_desc_{product_name}'
+            )],
+            [InlineKeyboardButton(
+                f"🖼 Edit Image - {product_name}",
+                callback_data=f'admin_edit_image_{product_name}'
             )]
         ])
     
@@ -1736,6 +1740,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await admin_edit_product(update, context)
         elif query.data.startswith('admin_edit_desc_'):
             await admin_edit_description(update, context)
+        elif query.data.startswith('admin_edit_image_'):
+            await admin_edit_image(update, context)
         elif query.data in ['admin_next_page', 'admin_prev_page']:
             await admin_handle_navigation(update, context)
         elif query.data.startswith('admin_update_status_'):
@@ -1808,6 +1814,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Handle product name update
     if update.effective_user.username == ADMIN_USERNAME and 'editing_product' in context.user_data:
         await handle_product_name_update(update, context)
+        return
+    
+    # Handle product image update
+    if update.effective_user.username == ADMIN_USERNAME and 'editing_product_image' in context.user_data:
+        await handle_product_image_update(update, context)
         return
     
     # Handle shipping update
@@ -1897,6 +1908,55 @@ def load_data():
         logger.error(f"Error loading data: {e}")
         PRODUCT_CATALOG.update(DEFAULT_PRODUCT_CATALOG)
         PRODUCT_IMAGES.update(DEFAULT_PRODUCT_IMAGES)
+
+# New function to start editing the product image
+async def admin_edit_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    query = update.callback_query
+    await query.answer()
+    # Extract product name from callback data
+    product_name = '_'.join(query.data.split('_')[3:])  # Get everything after 'admin_edit_image_'
+    current_image = PRODUCT_IMAGES.get(product_name, 'No image set.')
+    message = (
+        f"🖼 *Edit Image for: {product_name}* 🖼\n\n"
+        f"*Current Image URL:*\n{current_image}\n\n"
+        "Please send the new image URL for this product.\n"
+        "Ensure the URL starts with http:// or https://"
+    )
+    context.user_data['editing_product_image'] = product_name
+    keyboard = [[InlineKeyboardButton("🔙 Cancel", callback_data='admin_manage_products')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+
+
+# New function to handle the product image update
+async def handle_product_image_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    new_image_url = update.message.text.strip()
+    product_name = context.user_data.get('editing_product_image')
+    if not product_name or product_name not in PRODUCT_CATALOG:
+        await update.message.reply_text(
+            "❌ Error: Product not found or edit session expired.\nPlease try again from the product management menu."
+        )
+        return
+    # Update the product image URL
+    PRODUCT_IMAGES[product_name] = new_image_url
+    save_data()
+    del context.user_data['editing_product_image']
+    confirmation = (
+        "✅ *Product Image Updated Successfully* ✅\n\n"
+        f"Product: {product_name}\n"
+        f"New Image URL: {new_image_url}\n\n"
+        "The image has been updated successfully."
+    )
+    keyboard = [
+        [InlineKeyboardButton("📋 Back to Products", callback_data='admin_manage_products')],
+        [InlineKeyboardButton("🏠 Admin Panel", callback_data='admin_panel')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(confirmation, reply_markup=reply_markup, parse_mode='Markdown')
 
 def main():
     """Start the bot."""
