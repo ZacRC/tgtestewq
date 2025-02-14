@@ -1568,6 +1568,7 @@ async def admin_manage_products(update: Update, context: ContextTypes.DEFAULT_TY
             )]
         ])
     
+    keyboard.append([InlineKeyboardButton("➕ Create New Product", callback_data='admin_create_product')])
     keyboard.append([InlineKeyboardButton("↩️ Back to Admin Panel", callback_data='admin_panel')])
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -1758,6 +1759,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await admin_delete_all_confirm(update, context)
         elif query.data == 'admin_delete_all_orders':
             await admin_delete_all_orders(update, context)
+        elif query.data == 'admin_create_product':
+            await admin_create_product_start(update, context)
+        elif query.data == 'admin_cancel_create_product':
+            await admin_cancel_create_product(update, context)
         return
     
     # User order navigation
@@ -1957,6 +1962,22 @@ async def handle_product_image_update(update: Update, context: ContextTypes.DEFA
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(confirmation, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def admin_create_product_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    # Clear any existing creation session
+    context.user_data.pop('new_product', None)
+    context.user_data['new_product'] = {"step": "name"}
+    keyboard = [[InlineKeyboardButton("🔙 Cancel", callback_data='admin_cancel_create_product')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.callback_query.edit_message_text("🆕 *Create New Product*\n\nPlease enter the product name:", reply_markup=reply_markup, parse_mode='Markdown')
+
+async def admin_cancel_create_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    context.user_data.pop('new_product', None)
+    await admin_manage_products(update, context)
 
 def main():
     """Start the bot."""
