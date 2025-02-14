@@ -353,12 +353,22 @@ async def view_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if cart_summary:
         message += cart_summary
     
-    # Product view buttons
-    keyboard = [
-        [InlineKeyboardButton("Personal (0.5g - 7g)", callback_data=f'view_personal_{current_product["name"]}')],
-        [InlineKeyboardButton("Bulk (14g - 56g)", callback_data=f'view_bulk_{current_product["name"]}')],
-        [InlineKeyboardButton("Wholesale (112g - 448g)", callback_data=f'view_wholesale_{current_product["name"]}')]
-    ]
+    const_PERSONAL = {"0.5", "1", "3.5", "7"}
+    const_BULK = {"14", "28", "56"}
+    const_WHOLESALE = {"112", "224", "448"}
+    price_keys = set(current_product['prices'].keys())
+    groups = []
+    if price_keys & const_PERSONAL:
+        groups.append(("Personal", "view_personal"))
+    if price_keys & const_BULK:
+        groups.append(("Bulk", "view_bulk"))
+    if price_keys & const_WHOLESALE:
+        groups.append(("Wholesale", "view_wholesale"))
+    if not groups:
+        groups.append(("Available Options", "view_all"))
+
+    group_buttons = [InlineKeyboardButton(f"{label}", callback_data=f"{identifier}_{current_product['name']}") for (label, identifier) in groups]
+    keyboard = [group_buttons]
     
     # Add navigation row
     nav_buttons = []
@@ -1793,6 +1803,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await view_product_weights(update, context, 'bulk')
     elif query.data.startswith('view_wholesale_'):
         await view_product_weights(update, context, 'wholesale')
+    elif query.data.startswith('view_all_'):
+        await view_product_weights(update, context, 'all')
     elif query.data == 'view_cart':
         await view_cart(update, context)
     elif query.data == 'clear_cart':
