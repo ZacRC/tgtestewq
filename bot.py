@@ -439,21 +439,31 @@ async def view_product_weights(update: Update, context: ContextTypes.DEFAULT_TYP
     if cart_summary:
         message += cart_summary
     
-    weights = {
-        'personal': ["0.5", "1", "3.5", "7"],
-        'bulk': ["14", "28", "56"],
-        'wholesale': ["112", "224", "448"]
-    }[category]
+    if category == 'personal':
+        standard_list = ["0.5", "1", "3.5", "7"]
+    elif category == 'bulk':
+        standard_list = ["14", "28", "56"]
+    elif category == 'wholesale':
+        standard_list = ["112", "224", "448"]
+    else:
+        standard_list = []
+
+    available_options = [w for w in standard_list if w in product['prices']]
+    if not available_options:
+        # Fallback: use all available pricing keys sorted by numeric value
+        available_options = sorted(product['prices'], key=lambda x: float(x))
     
     keyboard = []
-    for weight in weights:
+    for weight in available_options:
         details = product['prices'][weight]
         cart_quantity = cart.get(f"{product_name}_{weight}", 0)
         quantity_text = f" ({cart_quantity}x)" if cart_quantity > 0 else ""
-        keyboard.append([InlineKeyboardButton(
-            f"{weight}g - {format_price(details['price'])}{quantity_text}",
-            callback_data=f'add_to_cart_{product_name}_{weight}'
-        )])
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{weight}g - {format_price(details['price'])}{quantity_text}",
+                callback_data=f'add_to_cart_{product_name}_{weight}'
+            )
+        ])
     
     # Add navigation buttons
     keyboard.extend([
