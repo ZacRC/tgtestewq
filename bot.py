@@ -1587,6 +1587,10 @@ async def admin_manage_products(update: Update, context: ContextTypes.DEFAULT_TY
             [InlineKeyboardButton(
                 f"🖼 Edit Image - {product_name}",
                 callback_data=f'admin_edit_image_{product_name}'
+            )],
+            [InlineKeyboardButton(
+                f"🗑 Delete - {product_name}",
+                callback_data=f'admin_delete_product_confirm_{product_name}'
             )]
         ])
     
@@ -1781,6 +1785,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await admin_delete_all_confirm(update, context)
         elif query.data == 'admin_delete_all_orders':
             await admin_delete_all_orders(update, context)
+        elif query.data.startswith('admin_delete_product_confirm_'):
+            await admin_delete_product_confirm(update, context)
+        elif query.data.startswith('admin_delete_product_'):
+            await admin_delete_product(update, context)
         return
     
     # User order navigation
@@ -2064,6 +2072,68 @@ Please enter the product *NAME*:"""
 Please enter the product *NAME*:""",
             parse_mode='Markdown'
         )
+
+# Add these new functions after admin_manage_products
+
+async def admin_delete_product_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show confirmation dialog for deleting a product"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    # Extract product name from callback data
+    product_name = '_'.join(query.data.split('_')[3:])  # Get everything after 'admin_delete_product_'
+    
+    message = (
+        "⚠️ *Delete Product Confirmation* ⚠️\n\n"
+        f"Are you sure you want to delete product *{product_name}*?\n"
+        "This action cannot be undone.\n\n"
+        "Note: This will not affect existing orders, but the product\n"
+        "will no longer be available for new orders."
+    )
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Yes, Delete", callback_data=f'admin_delete_product_{product_name}'),
+            InlineKeyboardButton("❌ No, Cancel", callback_data='admin_manage_products')
+        ]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def admin_delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Delete a product from the catalog"""
+    if update.effective_user.username != ADMIN_USERNAME:
+        return
+    
+    query = update.callback_query
+    await query.answer()
+    
+    # Extract product name from callback data
+    product_name = '_'.join(query.data.split('_')[3:])  # Get everything after 'admin_delete_product_'
+    
+    # Delete product from catalog and images
+    if product_name in PRODUCT_CATALOG:
+        del PRODUCT_CATALOG[product_name]
+    if product_name in PRODUCT_IMAGES:
+        del PRODUCT_IMAGES[product_name]
+    
+    # Save changes
+    save_data()
+    
+    message = (
+        "✅ *Product Deleted Successfully* ✅\n\n"
+        f"Product '{product_name}' has been removed from the catalog.\n"
+        "Existing orders containing this product will not be affected."
+    )
+    
+    keyboard = [[InlineKeyboardButton("↩️ Back to Products", callback_data='admin_manage_products')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
 
 def main():
     """Start the bot."""
