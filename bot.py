@@ -1545,7 +1545,9 @@ async def admin_manage_products(update: Update, context: ContextTypes.DEFAULT_TY
         "Current Products:\n\n"
     )
     
-    keyboard = []
+    keyboard = [
+        [InlineKeyboardButton("➕ Create New Product", callback_data='admin_create_product')]
+    ]
     
     # List all products with edit buttons
     for product_name in PRODUCT_CATALOG.keys():
@@ -1568,7 +1570,6 @@ async def admin_manage_products(update: Update, context: ContextTypes.DEFAULT_TY
             )]
         ])
     
-    keyboard.append([InlineKeyboardButton("➕ Create New Product", callback_data='admin_create_product')])
     keyboard.append([InlineKeyboardButton("↩️ Back to Admin Panel", callback_data='admin_panel')])
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -1729,9 +1730,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.effective_user.username != ADMIN_USERNAME:
             await query.answer("⚠️ Access denied: Admin only", show_alert=True)
             return
-            
         if query.data == 'admin_panel':
             await admin_panel(update, context)
+        elif query.data == 'admin_create_product':
+            await admin_create_product(update, context)
         elif query.data == 'admin_view_orders':
             context.user_data['admin_order_page'] = 0
             await admin_view_orders(update, context)
@@ -1759,10 +1761,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await admin_delete_all_confirm(update, context)
         elif query.data == 'admin_delete_all_orders':
             await admin_delete_all_orders(update, context)
-        elif query.data == 'admin_create_product':
-            await admin_create_product_start(update, context)
-        elif query.data == 'admin_cancel_create_product':
-            await admin_cancel_create_product(update, context)
         return
     
     # User order navigation
@@ -1832,6 +1830,65 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Handle initial shipping info during checkout
     elif user_id in CHECKOUT_STEPS and CHECKOUT_STEPS[user_id]['step'] == 'shipping':
         await handle_shipping_info(update, context)
+
+    # Insert the following code after 'user_id = update.effective_user.id' in the handle_message function
+    if update.effective_user.username == ADMIN_USERNAME and 'creating_new_product' in context.user_data:
+        creation_data = context.user_data['creating_new_product']
+        current_step = creation_data.get('step')
+        text = update.message.text.strip()
+        if current_step == 'name':
+            creation_data['name'] = text
+            creation_data['step'] = 'description'
+            await update.message.reply_text("Please enter the product *DESCRIPTION*:", parse_mode='Markdown')
+            return
+        elif current_step == 'description':
+            creation_data['description'] = text
+            creation_data['step'] = 'image'
+            await update.message.reply_text("Please enter the product *IMAGE URL* (must start with http:// or https://):", parse_mode='Markdown')
+            return
+        elif current_step == 'image':
+            creation_data['image'] = text
+            creation_data['step'] = 'pricing'
+            await update.message.reply_text("Please enter the *PRICING INFORMATION* in the following format:\n\nweight,price,unit,description; weight,price,unit,description; ...", parse_mode='Markdown')
+            return
+        elif current_step == 'pricing':
+            pricing_text = text
+            pricing_dict = {}
+            entries = pricing_text.split(';')
+            for entry in entries:
+                entry = entry.strip()
+                if not entry:
+                    continue
+                parts = entry.split(',')
+                if len(parts) != 4:
+                    await update.message.reply_text("Invalid pricing format. Each entry must have 4 comma-separated values: weight,price,unit,description.")
+                    return
+                weight = parts[0].strip()
+                try:
+                    price = float(parts[1].strip())
+                except Exception:
+                    await update.message.reply_text("Invalid price value. Please enter a number for the price.")
+                    return
+                unit = parts[2].strip()
+                desc = parts[3].strip()
+                pricing_dict[weight] = {"weight": float(weight), "price": price, "unit": unit, "description": desc}
+            creation_data['pricing'] = pricing_dict
+            product_name = creation_data['name']
+            if product_name in PRODUCT_CATALOG:
+                await update.message.reply_text(f"A product with the name '{product_name}' already exists. Please try again with a different name.")
+                return
+            PRODUCT_CATALOG[product_name] = {
+                "name": product_name,
+                "description": creation_data['description'],
+                "type": "Custom",
+                "thc": "N/A",
+                "prices": pricing_dict
+            }
+            PRODUCT_IMAGES[product_name] = creation_data['image']
+            save_data()
+            del context.user_data['creating_new_product']
+            await update.message.reply_text(f"✅ Product '{product_name}' created successfully!")
+            return
 
 def save_data():
     """Save orders, carts, and product catalog to files"""
@@ -1963,21 +2020,28 @@ async def handle_product_image_update(update: Update, context: ContextTypes.DEFA
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(confirmation, reply_markup=reply_markup, parse_mode='Markdown')
 
-async def admin_create_product_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# New function to initiate product creation
+async def admin_create_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Initiate new product creation process for admin."""
     if update.effective_user.username != ADMIN_USERNAME:
         return
-    # Clear any existing creation session
-    context.user_data.pop('new_product', None)
-    context.user_data['new_product'] = {"step": "name"}
-    keyboard = [[InlineKeyboardButton("🔙 Cancel", callback_data='admin_cancel_create_product')]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.callback_query.edit_message_text("🆕 *Create New Product*\n\nPlease enter the product name:", reply_markup=reply_markup, parse_mode='Markdown')
+    # Set up creation state
+    context.user_data['creating_new_product'] = { 'step': 'name' }
+    # Respond to admin asking for the product name
+    # Use callback if available, else send a message
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            """➕ *Create New Product*
 
-async def admin_cancel_create_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.username != ADMIN_USERNAME:
-        return
-    context.user_data.pop('new_product', None)
-    await admin_manage_products(update, context)
+Please enter the product *NAME*:"""
+        )
+    else:
+        await update.message.reply_text(
+            """➕ *Create New Product*
+
+Please enter the product *NAME*:""",
+            parse_mode='Markdown'
+        )
 
 def main():
     """Start the bot."""
