@@ -346,8 +346,6 @@ async def view_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = (
         f"🌿 *{current_product['name']}* 🌿\n"
         "─────────────────\n"
-        f"*Type:* {current_product['type']}\n"
-        f"*THC:* {current_product['thc']}\n\n"
         f"*Description:*\n{current_product['description']}\n"
         "─────────────────\n"
     )
