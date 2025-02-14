@@ -1866,29 +1866,35 @@ def load_data():
         else:
             SHOPPING_CARTS = {}
             
-        # First, initialize with default values
+        # Initialize PRODUCT_CATALOG and PRODUCT_IMAGES with defaults first
         PRODUCT_CATALOG.clear()
-        PRODUCT_CATALOG.update(DEFAULT_PRODUCT_CATALOG)
         PRODUCT_IMAGES.clear()
-        PRODUCT_IMAGES.update(DEFAULT_PRODUCT_IMAGES)
         
         # Then load saved catalog data if it exists
         if os.path.exists(CATALOG_FILE):
             with open(CATALOG_FILE, 'r') as f:
                 catalog_data = json.load(f)
                 if catalog_data.get('catalog'):
-                    # Update only existing products to preserve structure
-                    for product_name, product_data in catalog_data['catalog'].items():
-                        if product_name in PRODUCT_CATALOG:
-                            # Preserve the prices and other default fields
-                            saved_data = product_data.copy()
-                            saved_data['prices'] = PRODUCT_CATALOG[product_name]['prices']
-                            saved_data['type'] = PRODUCT_CATALOG[product_name]['type']
-                            saved_data['thc'] = PRODUCT_CATALOG[product_name]['thc']
-                            PRODUCT_CATALOG[product_name] = saved_data
-                        
+                    saved_catalog = catalog_data['catalog']
+                    # Start with saved data
+                    PRODUCT_CATALOG.update(saved_catalog)
+                    # Ensure all products have required fields from defaults
+                    for product_name in PRODUCT_CATALOG:
+                        if product_name in DEFAULT_PRODUCT_CATALOG:
+                            default_data = DEFAULT_PRODUCT_CATALOG[product_name]
+                            # Keep saved name and description, but ensure other default fields exist
+                            PRODUCT_CATALOG[product_name].setdefault('prices', default_data['prices'])
+                            PRODUCT_CATALOG[product_name].setdefault('type', default_data['type'])
+                            PRODUCT_CATALOG[product_name].setdefault('thc', default_data['thc'])
+                            
                 if catalog_data.get('images'):
                     PRODUCT_IMAGES.update(catalog_data['images'])
+        
+        # If no catalog data was loaded, use defaults
+        if not PRODUCT_CATALOG:
+            PRODUCT_CATALOG.update(DEFAULT_PRODUCT_CATALOG)
+        if not PRODUCT_IMAGES:
+            PRODUCT_IMAGES.update(DEFAULT_PRODUCT_IMAGES)
                 
     except Exception as e:
         logger.error(f"Error loading data: {e}")
